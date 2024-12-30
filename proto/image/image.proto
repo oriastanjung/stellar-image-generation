@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package images;
+
+option go_package = "github.com/oriastanjung/stellar/proto/image";
+
+// The ImageService defines our gRPC operations
+service ImageService {
+  // GenerateImage takes in multiple fields that make up the prompt
+  rpc GenerateImage (ImageRequest) returns (ImageResponse) {}
+
+  // DownloadAndSaveImage uses the URL and filename to download the image
+  rpc DownloadAndSaveImage (DownloadRequest) returns (DownloadResponse) {}
+}
+
+// ImageRequest is analogous to the parameters used to build your prompt
+message ImageRequest {
+  string coreSubject            = 1;
+  string keyDescriptors         = 2;
+  string environment            = 3;
+  string style                  = 4;
+  string moodTone               = 5;
+  string composition            = 6;
+  string additionalInstructions = 7;
+}
+
+// ImageResponse returns the generated image URL and filename
+message ImageResponse {
+  string imageUrl = 1;
+  string filename = 2;
+  string error    = 3;
+}
+
+// DownloadRequest holds the necessary info to download an image
+message DownloadRequest {
+  string imageUrl = 1;
+  string filename = 2;
+}
+
+// DownloadResponse gives a status back from the download operation
+message DownloadResponse {
+  bool   success = 1;
+  string error   = 2;
+}

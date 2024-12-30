@@ -1,45 +1,86 @@
 package main
 
 import (
-	"fmt"
 	"log"
+	"net"
 
-	"github.com/oriastanjung/stellar/internal/usecase"
+	"github.com/oriastanjung/stellar/internal/config"
+	"github.com/oriastanjung/stellar/internal/database"
+	serverAuth "github.com/oriastanjung/stellar/internal/grpc/auth"
+	"github.com/oriastanjung/stellar/internal/middleware"
+	repositoryAuth "github.com/oriastanjung/stellar/internal/repository/auth"
+	servicesAuth "github.com/oriastanjung/stellar/internal/services/auth"
+	usecaseAuth "github.com/oriastanjung/stellar/internal/usecase/auth"
+	pbAuth "github.com/oriastanjung/stellar/proto/auth"
+
+	serverImage "github.com/oriastanjung/stellar/internal/grpc/image"
+	servicesImage "github.com/oriastanjung/stellar/internal/services/image"
+	usecaseImage "github.com/oriastanjung/stellar/internal/usecase/image"
+	pbImage "github.com/oriastanjung/stellar/proto/image"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/reflection"
 )
 
 func main() {
-	// Example of how you might build or receive a user prompt at runtime.
-	// In this example, we’re just hard-coding the details for demonstration.
-	coreSubject := "A majestic flying castle"
-	keyDescriptors := "crystalline spires, glowing stained-glass windows"
-	environment := "high above the clouds"
-	style := "surreal fantasy style, soft pastel color palette"
-	moodTone := "epic and uplifting"
-	composition := "wide shot, symmetrical"
-	additionalInstructions := "illuminated by bright golden sunlight"
+	// load env
+	config := config.LoadEnv()
+	var port string = config.Port
+	var addr string = "0.0.0.0:" + port
 
-	// Build the final prompt string
-	prompt := fmt.Sprintf(
-		"Core Subject: %s\nKey Descriptors: %s\nEnvironment: %s\nStyle: %s\nMood/Tone: %s\nComposition: %s\nAdditional Instructions: %s",
-		coreSubject,
-		keyDescriptors,
-		environment,
-		style,
-		moodTone,
-		composition,
-		additionalInstructions,
-	)
+	// load DB
+	database.InitDB()
 
-	// Call our usecase function to send the request
-	imageURL, filename, err := usecase.GenerateImage(prompt)
+	// Handle graceful shutdown
+	database.GracefulShutdown()
+
+	// auth service
+	authRepository := repositoryAuth.NewAuthRepository(database.DB)
+	authUseCase := usecaseAuth.NewAuthUseCase(authRepository)
+	authService := servicesAuth.NewAuthService(authUseCase)
+	authServer := serverAuth.NewAuthServer(authService, config.BcryptSalt)
+	// end auth service
+
+	//image service
+	imageUseCase := usecaseImage.NewImageUseCase()
+	imageService := servicesImage.NewImageService(imageUseCase)
+	imageServer := serverImage.NewImageServer(imageService)
+	//end image service
+
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatalf("Failed to generate image: %v", err)
+		log.Printf("Error on Listening %v\n", err)
 	}
-	fmt.Println("Image URL:", imageURL)
-	if err := usecase.DownloadAndSaveImages(imageURL, filename); err != nil {
-		log.Fatalf("Failed to download and save image: %v", err)
+
+	defer listener.Close()
+	log.Printf("listening on %s\n", addr)
+
+	// set ssl certificate
+	options := []grpc.ServerOption{}
+	tls := true
+
+	if tls {
+		certFile := "ssl/server.crt"
+		keyFile := "ssl/server.pem"
+		creds, err := credentials.NewServerTLSFromFile(certFile, keyFile)
+		if err != nil {
+			log.Fatalf("Failed login certificate %v", err)
+		}
+		options = append(options, grpc.Creds(creds))
 	}
-	fmt.Println("Response from API:")
-	fmt.Println(imageURL)
-	fmt.Println("Downloaded and saved image:", filename)
+
+	// register middleware
+	options = append(options, grpc.UnaryInterceptor(middleware.TokenValidationUnaryInterceptor))
+	serverInstance := grpc.NewServer(options...)
+
+	pbAuth.RegisterAuthServiceRoutesServer(serverInstance, authServer)
+	pbImage.RegisterImageServiceServer(serverInstance, imageServer)
+	// pbFinance.RegisterFinanceRoutesServiceServer(serverInstance, fincanceServer)
+	// pbBusiness.RegisterBusinessRoutesServiceServer(serverInstance, businessServer)
+
+	reflection.Register(serverInstance)
+	if err = serverInstance.Serve(listener); err != nil {
+		log.Fatalf("Failed on Serve %v\n", err)
+	}
 }

@@ -1,0 +1,21 @@
+syntax="proto3";
+
+package user;
+option go_package = "github.com/oriastanjung/stellar/proto/user";
+
+message UserRequest{
+    string message = 1;
+}
+
+
+message UserModel{
+    string id = 1;
+    string username = 2;
+    string email = 3;
+    string role = 4;
+    string createdAt = 5;
+    string updatedAt = 6;
+    string profilePictureUrl = 7;
+    bool subscriptionStatus = 8;
+    string subscriptionToken = 9;
+}
